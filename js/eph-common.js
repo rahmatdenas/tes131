@@ -691,6 +691,9 @@ function enableApp() {
 }
 
 function processHashChange() {
+	if (typeof isGameMode !== 'undefined' && isGameMode === true) {
+      akhiriGameMode();
+  }
   if (isRevertingHash) {
     isRevertingHash = false;
     return; 
