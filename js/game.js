@@ -345,12 +345,32 @@ function bukaPanelEksklusif(qid) {
     if (typeof window.setMobilePanelExpanded === 'function') {
         window.setMobilePanelExpanded(true, true);
     }
+
+    // --- TAMBAHAN BARU ---
+    // 1. Sembunyikan kotak dialog game agar tidak menutupi layar
+    const gameDialog = document.getElementById('game-dialog');
+    if (gameDialog) gameDialog.classList.add('d-none');
+
+    // 2. Normalkan panel (hapus efek blur) agar user bisa membaca dengan jelas
+    const panelMobile = document.getElementById('panel');
+    if (panelMobile) {
+        panelMobile.style.pointerEvents = 'auto';
+        panelMobile.style.opacity = '1';
+    }
 }
 
 function tutupPanelEksklusif() {
     displayPanelContent('index'); // Kembalikan panel ke index
     if (typeof window.setMobilePanelExpanded === 'function') {
         window.setMobilePanelExpanded(false, false);
+    }
+
+    // --- TAMBAHAN BARU ---
+    // Kembalikan efek blur/kunci panel jika game masih berlanjut ke ronde berikutnya
+    const panelMobile = document.getElementById('panel');
+    if (panelMobile && isGameMode) {
+        panelMobile.style.pointerEvents = 'none';
+        panelMobile.style.opacity = '0.5';
     }
 }
 
