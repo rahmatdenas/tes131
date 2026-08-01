@@ -1,3 +1,6 @@
+.lock-screen {
+    pointer-events: auto !important; /* Menahan klik agar tidak tembus ke peta */
+}
 /* ==========================================================================
    1. PENGATURAN DASAR & UTILITAS (OPTIMALISASI SELULER KETAT)
    ========================================================================== */
