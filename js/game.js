@@ -421,7 +421,7 @@ function akhiriGameMode(isMenang = false) {
     tutupPanelEksklusif();
     Map.closePopup();
 
-if (isMenang) {
+    if (isMenang) {
         setTimeout(() => {
             let pesanSkor = gameScore > 0 
                 ? `Selamat! Anda menjawab benar <b>${gameScore} dari 3</b> pertanyaan!<br><br>Mau mencoba lagi?`
@@ -436,6 +436,7 @@ if (isMenang) {
             });
         }, 500);
     }
+} // <--- INI KURUNG KURAWAL YANG SEBELUMNYA TERTINGGAL
 
 // Fungsi helper narasi dinamis
 function getGamePrefix() {
