@@ -4,20 +4,16 @@
 // 1. GLOBAL STATE & REFERENSI DOM
 // ==========================================
 let isGameMode = false;
-let currentGameRound = 1; // Maksimal 3
-let gameTimeouts = []; // Array untuk menampung ID setTimeout
-let gameClusterLayer = null; // Layer khusus 10 marker game
+let currentGameRound = 1; 
+let gameTimeouts = []; 
+let gameClusterLayer = null; 
 let gameScore = 0;
 
-// Data soal & pilihan
 let targetGameData = null;
-let poolGameData = []; // 10 data terpilih untuk map
-let usedGameQIDs = new Set(); // Mencegah QID jadi target di ronde berikutnya
-
-// State pemulihan UI Filter
+let poolGameData = []; 
+let usedGameQIDs = new Set(); 
 let savedFilterState = {};
 
-// Referensi DOM (Pastikan HTML memiliki ID ini)
 const btnMulaiGame = document.getElementById('btn-mulai-game');
 const navBeranda = document.getElementById('nav-beranda');
 const navHasil = document.getElementById('nav-hasil-container');
@@ -27,13 +23,33 @@ const gameMessage = document.getElementById('game-message');
 const gameOverlay = document.getElementById('game-overlay');
 
 // ==========================================
-// 2. TOMBOL MULAI, BATAL & SKIP
+// 2. HELPER NARASI DINAMIS
+// ==========================================
+function getGamePrefix() {
+    let prefix = 'letak';
+    if (['Kabupaten dan kota'].includes(currentNamaKlaster)) prefix = 'provinsi';
+    else if (['Tempat lahir tokoh'].includes(currentNamaKlaster)) prefix = 'tempat lahir';
+    else if (['Latar karya sastra'].includes(currentNamaKlaster)) prefix = 'latar';
+    else if (['Publikasi', 'Media massa'].includes(currentNamaKlaster)) prefix = 'tempat terbit';
+    else if (['Lukisan', 'Lontar', 'Naskah'].includes(currentNamaKlaster)) prefix = 'koleksi';
+    else if (['Gempa bumi dan tsunami', 'Peristiwa lainnya', 'Perang & konflik', 'Bencana lainnya'].includes(currentNamaKlaster)) prefix = 'pusat kejadian/terdampak';
+    else if (['Situs arkeologi lainnya'].includes(currentNamaKlaster)) prefix = 'letak';
+    else if (['Prasasti', 'Artefak'].includes(currentNamaKlaster)) prefix = 'lokasi sekarang';
+
+    if (currentKategoriUtama === 'alam') {
+        if (['Bahasa'].includes(currentNamaKlaster)) prefix = 'wilayah penutur utama';
+        else if (['Hidangan', 'Pakaian', 'Tari dan pertunjukan', 'Ritual dan upacara', 'Budaya rakyat'].includes(currentNamaKlaster)) prefix = `${currentNamaKlaster.toLowerCase()} khas`;
+    }
+    return prefix;
+}
+
+// ==========================================
+// 3. KENDALI TOMBOL (MULAI, BATAL, SKIP)
 // ==========================================
 btnMulaiGame.addEventListener('click', function(e) {
     e.preventDefault();
     e.stopPropagation();
 
-    // 1. Validasi Syarat Game
     let validRecords = Object.values(Records).filter(r => r.lat && r.lon && r.imageFilename);
     let uniqueRegions = new Set();
     validRecords.forEach(r => {
@@ -42,11 +58,10 @@ btnMulaiGame.addEventListener('click', function(e) {
     });
 
     if (validRecords.length < 10 || uniqueRegions.size < 4) {
-        tampilkanDialog("Pencarian saat ini belum memenuhi syarat Mode Game.<br><br>Pastikan ada <b>minimal 10 data bergambar</b> yang tersebar di <b>minimal 4 wilayah/provinsi berbeda</b>.", "alert", "Syarat Belum Terpenuhi");
+        tampilkanDialog("Pencarian saat ini belum memenuhi syarat Mode Game.<br><br>Pastikan ada <b>minimal 10 data bergambar</b> yang tersebar di <b>minimal 4 wilayah berbeda</b>.", "alert", "Syarat Belum Terpenuhi");
         return;
     }
 
-    // 2. Simpan State Filter Pengguna Saat Ini
     savedFilterState = {
         region: currentRegionFilter,
         usia: currentUsiaFilter,
@@ -58,11 +73,10 @@ btnMulaiGame.addEventListener('click', function(e) {
 
     isGameMode = true;
     currentGameRound = 1;
-    gameScore = 0; // <--- TAMBAHKAN BARIS INI
+    gameScore = 0;
     usedGameQIDs.clear();
     clearAllGameTimeouts();
 
-    // 3. UI Navigasi Mode Game
     if (typeof window.setMobilePanelExpanded === 'function') window.setMobilePanelExpanded(false, false);
     const panelMobile = document.getElementById('panel');
     if (panelMobile) {
@@ -77,11 +91,10 @@ btnMulaiGame.addEventListener('click', function(e) {
     btnMenuInduk.classList.add('text-primary');
     document.getElementById('submenu-atas').classList.add('d-none');
 
-    // 4. Bersihkan Peta Utama (Isolasi)
-    Cluster.clearLayers();
+    // Mencegah marker asli berantakan
+    if (Map && Map.hasLayer(Cluster)) Map.removeLayer(Cluster);
     if (Map) Map.closePopup();
     
-    // 5. Mulai Ronde 1
     jalankanRonde();
 });
 
@@ -99,23 +112,20 @@ btnMenuInduk.addEventListener('click', function(e) {
         
         clearAllGameTimeouts();
         currentGameRound++;
-        if (currentGameRound > 3) {
-            akhiriGameMode(true); // Selesai
-        } else {
-            jalankanRonde();
-        }
+        if (currentGameRound > 3) akhiriGameMode(true);
+        else jalankanRonde();
     }
 });
 
 // ==========================================
-// 3. LOGIKA RONDE GAME
+// 4. LOGIKA RONDE GAME & PEMBUATAN MARKER
 // ==========================================
 function jalankanRonde() {
     clearAllGameTimeouts();
     if (Map) Map.closePopup();
-    if (gameClusterLayer) {
+    
+    if (gameClusterLayer && Map.hasLayer(gameClusterLayer)) {
         Map.removeLayer(gameClusterLayer);
-        gameClusterLayer = null;
     }
     
     gameDialog.classList.remove('d-none');
@@ -123,22 +133,18 @@ function jalankanRonde() {
     document.getElementById('game-title').textContent = `Tantangan ${currentGameRound}/3`;
     gameDialog.style.border = "none";
 
-    // Buat Layer Khusus Game
     gameClusterLayer = L.markerClusterGroup({
         maxClusterRadius: 40,
         spiderfyOnMaxZoom: true,
         zoomToBoundsOnClick: true
     });
 
-    // Ambil Data Memenuhi Syarat
     let allValid = Object.values(Records).filter(r => r.lat && r.lon && r.imageFilename);
     let availableForTarget = allValid.filter(r => !usedGameQIDs.has(r.id));
     
-    // Pilih Target
     targetGameData = availableForTarget[Math.floor(Math.random() * availableForTarget.length)];
     usedGameQIDs.add(targetGameData.id);
 
-    // Pilih 9 Distractor (Untuk dimunculkan di peta)
     let distractorPool = allValid.filter(r => r.id !== targetGameData.id);
     let shuffledDistractors = distractorPool.sort(() => 0.5 - Math.random()).slice(0, 9);
     
@@ -148,27 +154,47 @@ function jalankanRonde() {
     else if (currentGameRound === 2) setupGame2();
     else if (currentGameRound === 3) setupGame3();
 
+    // CETAK 10 MARKER KE PETA
+    poolGameData.forEach(record => {
+        let isTarget = (record.id === targetGameData.id);
+        let isBisu = (currentGameRound !== 1);
+        
+        let marker = L.marker([record.lat, record.lon], { 
+            icon: ikonTetesanAir, 
+            interactive: !isBisu 
+        });
+        
+        marker.bindPopup(`<b>${record.title}</b>`, { closeButton: false });
+        
+        if (isTarget) {
+            targetGameData.mapMarkerGame = marker; 
+        }
+
+        if (!isBisu) {
+            marker.on('click', function() {
+                evaluasiJawabanGame(isTarget, record.title);
+            });
+        }
+        
+        gameClusterLayer.addLayer(marker);
+    });
+
     Map.addLayer(gameClusterLayer);
     
-    // Zoom agar semua marker game terlihat
-    let groupBounds = L.featureGroup(gameClusterLayer.getLayers()).getBounds();
-    Map.flyToBounds(groupBounds, { duration: 1.5, padding: [30, 30] });
+    if (gameClusterLayer.getLayers().length > 0) {
+        Map.flyToBounds(gameClusterLayer.getBounds(), { duration: 1.5, padding: [30, 30] });
+    }
 }
 
-// ------------------------------------------
-// GAME 1: Cari Marker di Peta
-// ------------------------------------------
 function setupGame1() {
     let prefix = getGamePrefix();
     let kataTanya = (prefix === 'letak' || prefix === 'lokasi sekarang') ? 'lokasi' : prefix;
-    
     gameMessage.innerHTML = `Temukan di peta ${kataTanya}:<br><strong style="font-size:20px; color:#d9534f;">${targetGameData.title}</strong>?`;
 }
 
 function setupGame2() {
     let prefix = getGamePrefix();
     let kataTanya = (prefix === 'letak' || prefix === 'lokasi sekarang') ? 'lokasi' : prefix;
-    
     gameMessage.innerHTML = `Di manakah ${kataTanya} dari:<br><strong style="font-size:20px; color:#d9534f;">${targetGameData.title}</strong>?`;
 
     let provIdsBenar = Object.keys(targetGameData.designations).filter(p => p !== 'all' && ProvinceIndex[p] && ProvinceIndex[p].name !== 'Wilayah Lainnya/Tidak Spesifik');
@@ -187,11 +213,8 @@ function setupGame2() {
 
 function setupGame3() {
     let imgUrl = `${COMMONS_WIKI_URL_PREF}Special:FilePath/${encodeURIComponent(targetGameData.imageFilename)}?width=250`;
-    
     let tanyaNama = `Apa nama ${currentNamaKlaster.toLowerCase()} ini?`;
-    if (currentNamaKlaster === 'Tempat lahir tokoh') {
-        tanyaNama = `Siapa nama tokoh ini?`;
-    }
+    if (currentNamaKlaster === 'Tempat lahir tokoh') tanyaNama = `Siapa nama tokoh ini?`;
 
     gameMessage.innerHTML = `
         ${tanyaNama}<br>
@@ -218,12 +241,12 @@ function setupGame3() {
     renderTombolPilihanGanda(options);
 }
 
-// ------------------------------------------
-// HELPER UI: Render Tombol Game 2 & 3
-// ------------------------------------------
-function renderTombolPilihanGanda(options, markerTargetAsli) {
+// ==========================================
+// 5. HELPER UI & EVALUASI
+// ==========================================
+function renderTombolPilihanGanda(options) {
     let htmlTombol = `<div class="game-options-grid mt-10" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">`;
-    options.forEach((opt, idx) => {
+    options.forEach(opt => {
         htmlTombol += `<button class="btn-game-option" data-benar="${opt.benar}" data-nama="${opt.nama}" style="padding:10px; border:1px solid #ccc; background:#f9f9f9; border-radius:5px; cursor:pointer; font-size:13px; font-weight:bold;">${opt.nama}</button>`;
     });
     htmlTombol += `</div>`;
@@ -236,10 +259,8 @@ function renderTombolPilihanGanda(options, markerTargetAsli) {
             let isBenar = this.getAttribute('data-benar') === 'true';
             let namaDiklik = this.getAttribute('data-nama');
             
-            // Matikan tombol agar tidak di-spam klik
             buttons.forEach(b => b.disabled = true);
             
-            // Jika salah, warnai yang benar dengan hijau agar user tahu
             if (!isBenar) {
                 this.style.background = "#ffcccc";
                 this.style.borderColor = "red";
@@ -253,18 +274,15 @@ function renderTombolPilihanGanda(options, markerTargetAsli) {
                 this.style.borderColor = "green";
             }
 
-            evaluasiJawabanGame(isBenar, namaDiklik, targetGameData.id, markerTargetAsli);
+            evaluasiJawabanGame(isBenar, namaDiklik);
         });
     });
 }
 
-
-// ==========================================
-// 4. EVALUASI JAWABAN (ANIMASI & TIMEOUT)
-// ==========================================
-function evaluasiJawabanGame(isBenar, titleDiklik, qidDiklik, markerSistem) {
-    if (isBenar) gameScore++; // <--- TAMBAHAN UNTUK MENGHITUNG SKOR
-
+function evaluasiJawabanGame(isBenar, titleDiklik) {
+    if (isBenar) gameScore++; 
+    let markerSistem = targetGameData.mapMarkerGame; 
+    
     gameOverlay.classList.add('lock-screen');
     document.getElementById('game-title').textContent = isBenar ? "Tepat Sekali! 🎉" : "Sayang Sekali ❌";
     
@@ -275,14 +293,12 @@ function evaluasiJawabanGame(isBenar, titleDiklik, qidDiklik, markerSistem) {
 
     gameDialog.style.border = isBenar ? "3px solid green" : "3px solid red";
     
-    // Animasi Terbang (Jika salah, ada jeda terbang. Jika benar, langsung terbang/zoom in)
     let durasiTerbang = isBenar ? 1.5 : 2.5;
     let waktuTungguBukaPopup = isBenar ? 1500 : 2600;
 
     Map.flyTo([targetGameData.lat, targetGameData.lon], 17, { duration: durasiTerbang });
 
     let t1 = setTimeout(() => {
-        // Karena game marker layer menggunakan kluster, kita pastikan terurai
         if (gameClusterLayer && gameClusterLayer.hasLayer(markerSistem)) {
             gameClusterLayer.zoomToShowLayer(markerSistem, function() {
                 markerSistem.openPopup();
@@ -293,7 +309,6 @@ function evaluasiJawabanGame(isBenar, titleDiklik, qidDiklik, markerSistem) {
             bukaPanelEksklusif(targetGameData.id);
         }
 
-        // Tahan 5 Detik, lalu tutup dan lanjut ronde
         let t2 = setTimeout(() => {
             if (Map) Map.closePopup();
             tutupPanelEksklusif();
@@ -311,20 +326,16 @@ function evaluasiJawabanGame(isBenar, titleDiklik, qidDiklik, markerSistem) {
 }
 
 // ==========================================
-// 5. HELPER PANEL (Tanpa Ubah URL Hash)
+// 6. HELPER PANEL EKSKLUSIF (Tanpa Hash)
 // ==========================================
 function bukaPanelEksklusif(qid) {
-    displayRecordDetails(qid); // Panggil fungsi JS 2
+    displayRecordDetails(qid); 
     if (typeof window.setMobilePanelExpanded === 'function') {
         window.setMobilePanelExpanded(true, true);
     }
-
-    // --- TAMBAHAN BARU ---
-    // 1. Sembunyikan kotak dialog game agar tidak menutupi layar
-    const gameDialog = document.getElementById('game-dialog');
+    
+    // Sembunyikan dialog game & normalkan panel
     if (gameDialog) gameDialog.classList.add('d-none');
-
-    // 2. Normalkan panel (hapus efek blur) agar user bisa membaca dengan jelas
     const panelMobile = document.getElementById('panel');
     if (panelMobile) {
         panelMobile.style.pointerEvents = 'auto';
@@ -333,13 +344,11 @@ function bukaPanelEksklusif(qid) {
 }
 
 function tutupPanelEksklusif() {
-    displayPanelContent('index'); // Kembalikan panel ke index
+    displayPanelContent('index'); 
     if (typeof window.setMobilePanelExpanded === 'function') {
         window.setMobilePanelExpanded(false, false);
     }
-
-    // --- TAMBAHAN BARU ---
-    // Kembalikan efek blur/kunci panel jika game masih berlanjut ke ronde berikutnya
+    
     const panelMobile = document.getElementById('panel');
     if (panelMobile && isGameMode) {
         panelMobile.style.pointerEvents = 'none';
@@ -348,7 +357,7 @@ function tutupPanelEksklusif() {
 }
 
 // ==========================================
-// 6. MANAJEMEN TIMEOUT & AKHIRI GAME
+// 7. MANAJEMEN TIMEOUT & AKHIRI GAME
 // ==========================================
 function clearAllGameTimeouts() {
     gameTimeouts.forEach(t => clearTimeout(t));
@@ -359,17 +368,19 @@ function akhiriGameMode(isMenang = false) {
     isGameMode = false;
     clearAllGameTimeouts();
 
-    // 1. Bersihkan UI Game
-    if (gameClusterLayer) {
+    if (gameClusterLayer && Map.hasLayer(gameClusterLayer)) {
         Map.removeLayer(gameClusterLayer);
         gameClusterLayer = null;
     }
+    
+    // KEMBALIKAN MARKER ASLI
+    if (!Map.hasLayer(Cluster)) Map.addLayer(Cluster);
+
     gameDialog.classList.add('d-none');
-    gameOverlay.classList.remove('lock-screen');
+    gameOverlay.classList.remove('lock-screen', 'd-none');
     gameOverlay.classList.add('d-none');
     document.getElementById('game-title').textContent = "Tantangan Game!";
 
-    // 2. Kembalikan Navigasi Menu
     navHasil.classList.remove('nav-disabled');
     navBeranda.textContent = "Beranda";
     navBeranda.classList.remove('text-danger');
@@ -379,14 +390,12 @@ function akhiriGameMode(isMenang = false) {
     let subMenu = document.getElementById('submenu-atas');
     if(subMenu) subMenu.classList.add('d-none');
 
-    // 3. Buka Kunci Mobile Panel
     const panelMobile = document.getElementById('panel'); 
     if (panelMobile) {
         panelMobile.style.pointerEvents = 'auto'; 
         panelMobile.style.opacity = '1'; 
     }
     
-    // 4. Pulihkan Filter ke State Awal
     if (Object.keys(savedFilterState).length > 0) {
         currentRegionFilter = savedFilterState.region;
         currentUsiaFilter = savedFilterState.usia;
@@ -416,7 +425,6 @@ function akhiriGameMode(isMenang = false) {
         }
     }
 
-    // 5. Render Ulang Marker Normal
     applyIntersectionFilter(true);
     tutupPanelEksklusif();
     Map.closePopup();
@@ -427,32 +435,11 @@ function akhiriGameMode(isMenang = false) {
                 ? `Selamat! Anda menjawab benar <b>${gameScore} dari 3</b> pertanyaan!<br><br>Mau mencoba lagi?`
                 : `Anda belum berhasil menjawab pertanyaan dengan benar!<br><br>Mau mencoba lagi?`;
             
-            // Menggunakan tipe 'confirm' agar muncul tombol Ya dan Tutup/Tidak
             tampilkanDialog(pesanSkor, "confirm", "Skor Akhir 🏆").then(mauMainLagi => {
                 if (mauMainLagi) {
-                    // Memicu klik tombol mulai game secara otomatis untuk ronde baru
                     document.getElementById('btn-mulai-game').click();
                 }
             });
         }, 500);
     }
-} // <--- INI KURUNG KURAWAL YANG SEBELUMNYA TERTINGGAL
-
-// Fungsi helper narasi dinamis
-function getGamePrefix() {
-    let prefix = 'letak';
-    if (['Kabupaten dan kota'].includes(currentNamaKlaster)) prefix = 'provinsi';
-    else if (['Tempat lahir tokoh'].includes(currentNamaKlaster)) prefix = 'tempat lahir';
-    else if (['Latar karya sastra'].includes(currentNamaKlaster)) prefix = 'latar';
-    else if (['Publikasi', 'Media massa'].includes(currentNamaKlaster)) prefix = 'tempat terbit';
-    else if (['Lukisan', 'Lontar', 'Naskah'].includes(currentNamaKlaster)) prefix = 'koleksi';
-    else if (['Gempa bumi dan tsunami', 'Peristiwa lainnya', 'Perang & konflik', 'Bencana lainnya'].includes(currentNamaKlaster)) prefix = 'pusat kejadian/terdampak';
-    else if (['Situs arkeologi lainnya'].includes(currentNamaKlaster)) prefix = 'letak';
-    else if (['Prasasti', 'Artefak'].includes(currentNamaKlaster)) prefix = 'lokasi sekarang';
-
-    if (currentKategoriUtama === 'alam') {
-        if (['Bahasa'].includes(currentNamaKlaster)) prefix = 'wilayah penutur utama';
-        else if (['Hidangan', 'Pakaian', 'Tari dan pertunjukan', 'Ritual dan upacara', 'Budaya rakyat'].includes(currentNamaKlaster)) prefix = `${currentNamaKlaster.toLowerCase()} khas`;
-    }
-    return prefix;
 }
