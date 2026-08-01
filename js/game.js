@@ -7,6 +7,7 @@ let isGameMode = false;
 let currentGameRound = 1; // Maksimal 3
 let gameTimeouts = []; // Array untuk menampung ID setTimeout
 let gameClusterLayer = null; // Layer khusus 10 marker game
+let gameScore = 0;
 
 // Data soal & pilihan
 let targetGameData = null;
@@ -57,6 +58,7 @@ btnMulaiGame.addEventListener('click', function(e) {
 
     isGameMode = true;
     currentGameRound = 1;
+    gameScore = 0; // <--- TAMBAHKAN BARIS INI
     usedGameQIDs.clear();
     clearAllGameTimeouts();
 
@@ -157,45 +159,21 @@ function jalankanRonde() {
 // GAME 1: Cari Marker di Peta
 // ------------------------------------------
 function setupGame1() {
-    gameMessage.innerHTML = `Temukan lokasi:<br><strong style="font-size:20px; color:#d9534f;">${targetGameData.title}</strong><br><small>Klik marker yang tepat di peta!</small>`;
+    let prefix = getGamePrefix();
+    let kataTanya = (prefix === 'letak' || prefix === 'lokasi sekarang') ? 'lokasi' : prefix;
     
-    // Peta bisa diklik
-    poolGameData.forEach(record => {
-        let marker = L.marker([record.lat, record.lon], { icon: ikonTetesanAir });
-        
-        // Event khusus game
-        marker.on('click', function() {
-            let isBenar = (record.id === targetGameData.id);
-            evaluasiJawabanGame(isBenar, record.title, record.id, marker);
-        });
-        
-        gameClusterLayer.addLayer(marker);
-    });
+    gameMessage.innerHTML = `Temukan di peta ${kataTanya}:<br><strong style="font-size:20px; color:#d9534f;">${targetGameData.title}</strong>?`;
 }
 
-// ------------------------------------------
-// GAME 2: Tebak Wilayah (Pilihan Ganda)
-// ------------------------------------------
 function setupGame2() {
-    // 1. Tentukan prefix lokasi berdasarkan kluster
-    let prefix = "letak/lokasi";
-    if (['Tempat lahir tokoh'].includes(currentNamaKlaster)) prefix = "tempat lahir";
-    else if (['Publikasi', 'Media massa'].includes(currentNamaKlaster)) prefix = "tempat terbit";
-    else if (['Gempa bumi dan tsunami'].includes(currentNamaKlaster)) prefix = "pusat kejadian";
+    let prefix = getGamePrefix();
+    let kataTanya = (prefix === 'letak' || prefix === 'lokasi sekarang') ? 'lokasi' : prefix;
+    
+    gameMessage.innerHTML = `Di manakah ${kataTanya} dari:<br><strong style="font-size:20px; color:#d9534f;">${targetGameData.title}</strong>?`;
 
-    gameMessage.innerHTML = `Dimanakah ${prefix} dari:<br><strong style="font-size:20px; color:#d9534f;">${targetGameData.title}</strong>?`;
-
-    // 2. Siapkan Marker BISU di peta
-    poolGameData.forEach(record => {
-        let marker = L.marker([record.lat, record.lon], { icon: ikonTetesanAir, interactive: false }); // interactive: false = BISU
-        gameClusterLayer.addLayer(marker);
-    });
-
-    // 3. Ambil Wilayah Benar
     let provIdsBenar = Object.keys(targetGameData.designations).filter(p => p !== 'all' && ProvinceIndex[p] && ProvinceIndex[p].name !== 'Wilayah Lainnya/Tidak Spesifik');
     let namaWilayahBenar = provIdsBenar.length > 0 ? ProvinceIndex[provIdsBenar[0]].name : "Wilayah Khusus";
 
-    // 4. Cari 3 Wilayah Salah (Distractor)
     let semuaWilayahUnik = Object.keys(ProvinceIndex)
         .filter(k => k !== 'all' && ProvinceIndex[k].name !== 'Wilayah Lainnya/Tidak Spesifik' && ProvinceIndex[k].name !== namaWilayahBenar)
         .map(k => ProvinceIndex[k].name);
@@ -204,28 +182,22 @@ function setupGame2() {
     let options = [{ nama: namaWilayahBenar, benar: true }, ...distractors.map(d => ({ nama: d, benar: false }))];
     options.sort(() => 0.5 - Math.random());
 
-    // 5. Render Tombol Pilihan
-    renderTombolPilihanGanda(options, targetGameData.mapMarker); // Kirim marker asli untuk evaluasi
+    renderTombolPilihanGanda(options); 
 }
 
-// ------------------------------------------
-// GAME 3: Tebak Nama dari Gambar
-// ------------------------------------------
 function setupGame3() {
     let imgUrl = `${COMMONS_WIKI_URL_PREF}Special:FilePath/${encodeURIComponent(targetGameData.imageFilename)}?width=250`;
     
+    let tanyaNama = `Apa nama ${currentNamaKlaster.toLowerCase()} ini?`;
+    if (currentNamaKlaster === 'Tempat lahir tokoh') {
+        tanyaNama = `Siapa nama tokoh ini?`;
+    }
+
     gameMessage.innerHTML = `
-        Apa nama ${currentNamaKlaster.toLowerCase()} ini?<br>
+        ${tanyaNama}<br>
         <img src="${imgUrl}" style="width:100%; max-height:180px; object-fit:cover; border-radius:8px; margin-top:10px; border:2px solid #ddd;">
     `;
 
-    // Marker Bisu
-    poolGameData.forEach(record => {
-        let marker = L.marker([record.lat, record.lon], { icon: ikonTetesanAir, interactive: false });
-        gameClusterLayer.addLayer(marker);
-    });
-
-    // Cari distractor dari provinsi yang sama jika ada
     let provIdsBenar = Object.keys(targetGameData.designations).filter(p => p !== 'all' && ProvinceIndex[p]);
     let provTarget = provIdsBenar.length > 0 ? provIdsBenar[0] : null;
 
@@ -234,7 +206,6 @@ function setupGame3() {
         distractorPool = Object.values(Records).filter(r => r.id !== targetGameData.id && r.areaTags.has(provTarget));
     }
     
-    // Jika kurang dari 3, ambil acak dari tempat lain
     if (distractorPool.length < 3) {
         let sisanya = Object.values(Records).filter(r => r.id !== targetGameData.id && !distractorPool.includes(r));
         distractorPool = distractorPool.concat(sisanya.sort(() => 0.5 - Math.random()).slice(0, 3 - distractorPool.length));
@@ -244,7 +215,7 @@ function setupGame3() {
     let options = [{ nama: targetGameData.title, benar: true }, ...distractors.map(d => ({ nama: d.title, benar: false }))];
     options.sort(() => 0.5 - Math.random());
 
-    renderTombolPilihanGanda(options, targetGameData.mapMarker);
+    renderTombolPilihanGanda(options);
 }
 
 // ------------------------------------------
@@ -292,6 +263,8 @@ function renderTombolPilihanGanda(options, markerTargetAsli) {
 // 4. EVALUASI JAWABAN (ANIMASI & TIMEOUT)
 // ==========================================
 function evaluasiJawabanGame(isBenar, titleDiklik, qidDiklik, markerSistem) {
+    if (isBenar) gameScore++; // <--- TAMBAHAN UNTUK MENGHITUNG SKOR
+
     gameOverlay.classList.add('lock-screen');
     document.getElementById('game-title').textContent = isBenar ? "Tepat Sekali! 🎉" : "Sayang Sekali ❌";
     
@@ -448,9 +421,37 @@ function akhiriGameMode(isMenang = false) {
     tutupPanelEksklusif();
     Map.closePopup();
 
-    if (isMenang) {
+if (isMenang) {
         setTimeout(() => {
-            tampilkanDialog("Selamat! Anda telah menyelesaikan 3 ronde tantangan spasial.", "alert", "Game Selesai 🏆");
+            let pesanSkor = gameScore > 0 
+                ? `Selamat! Anda menjawab benar <b>${gameScore} dari 3</b> pertanyaan!<br><br>Mau mencoba lagi?`
+                : `Anda belum berhasil menjawab pertanyaan dengan benar!<br><br>Mau mencoba lagi?`;
+            
+            // Menggunakan tipe 'confirm' agar muncul tombol Ya dan Tutup/Tidak
+            tampilkanDialog(pesanSkor, "confirm", "Skor Akhir 🏆").then(mauMainLagi => {
+                if (mauMainLagi) {
+                    // Memicu klik tombol mulai game secara otomatis untuk ronde baru
+                    document.getElementById('btn-mulai-game').click();
+                }
+            });
         }, 500);
     }
+
+// Fungsi helper narasi dinamis
+function getGamePrefix() {
+    let prefix = 'letak';
+    if (['Kabupaten dan kota'].includes(currentNamaKlaster)) prefix = 'provinsi';
+    else if (['Tempat lahir tokoh'].includes(currentNamaKlaster)) prefix = 'tempat lahir';
+    else if (['Latar karya sastra'].includes(currentNamaKlaster)) prefix = 'latar';
+    else if (['Publikasi', 'Media massa'].includes(currentNamaKlaster)) prefix = 'tempat terbit';
+    else if (['Lukisan', 'Lontar', 'Naskah'].includes(currentNamaKlaster)) prefix = 'koleksi';
+    else if (['Gempa bumi dan tsunami', 'Peristiwa lainnya', 'Perang & konflik', 'Bencana lainnya'].includes(currentNamaKlaster)) prefix = 'pusat kejadian/terdampak';
+    else if (['Situs arkeologi lainnya'].includes(currentNamaKlaster)) prefix = 'letak';
+    else if (['Prasasti', 'Artefak'].includes(currentNamaKlaster)) prefix = 'lokasi sekarang';
+
+    if (currentKategoriUtama === 'alam') {
+        if (['Bahasa'].includes(currentNamaKlaster)) prefix = 'wilayah penutur utama';
+        else if (['Hidangan', 'Pakaian', 'Tari dan pertunjukan', 'Ritual dan upacara', 'Budaya rakyat'].includes(currentNamaKlaster)) prefix = `${currentNamaKlaster.toLowerCase()} khas`;
+    }
+    return prefix;
 }
