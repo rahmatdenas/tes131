@@ -186,7 +186,6 @@ document.addEventListener('click', function(e) {
   });
   
   Map.on('popupopen', function(e) { 
-	  if (typeof isGameMode !== 'undefined' && isGameMode === true) return;
     e.popup._sudahDiupdate = false;
     let qid = e.popup._qid;
     if (window.location.hash !== '#' + qid) {
