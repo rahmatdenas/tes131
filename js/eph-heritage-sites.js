@@ -1017,6 +1017,11 @@ function updateFeatureCounts(totalValidRecords) {
 
 function applyIntersectionFilter(preventZoom = false) {
   if (!PrimaryDataIsLoaded) return;
+// --- TAMBAHAN UNTUK GAME ---
+  if (typeof isGameMode !== 'undefined' && isGameMode === true) {
+      return; // Cegah filter dan render normal berjalan saat game aktif!
+  }
+  // --------------------------
 if (Map) Map.stop();
   if (typeof flightDebounceToken !== 'undefined' && flightDebounceToken) {
     clearTimeout(flightDebounceToken);
